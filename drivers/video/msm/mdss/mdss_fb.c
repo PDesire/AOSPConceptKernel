@@ -4,6 +4,7 @@
  * Copyright (C) 2007 Google Incorporated
  * Copyright (c) 2008-2015, The Linux Foundation. All rights reserved.
  * Copyright (C) 2013-2014, Sony Mobile Communications AB.
+ * Copyright (c) 2008-2016, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -715,8 +716,8 @@ static ssize_t mdss_fb_force_panel_dead(struct device *dev,
 		return len;
 	}
 
-	if (sscanf(buf, "%d", &pdata->panel_info.panel_force_dead) != 1)
-		pr_err("sccanf buf error!\n");
+	if (kstrtouint(buf, 0, &pdata->panel_info.panel_force_dead))
+		pr_err("kstrtouint buf error\n");
 
 	return len;
 }
@@ -829,8 +830,8 @@ static ssize_t mdss_fb_change_dfps_mode(struct device *dev,
 	}
 	pinfo = &pdata->panel_info;
 
-	if (sscanf(buf, "%d", &dfps_mode) != 1) {
-		pr_err("sccanf buf error!\n");
+	if (kstrtouint(buf, 0, &dfps_mode)) {
+		pr_err("kstrtouint buf error\n");
 		return len;
 	}
 
