@@ -1325,6 +1325,7 @@ static int req_crypt_ctr(struct dm_target *ti, unsigned int argc, char **argv)
 	 * also allow it
 	 */
 	ti->num_flush_bios = 1;
+	ti->num_discard_bios = 1;
 
 	err = 0;
 

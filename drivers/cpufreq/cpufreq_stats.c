@@ -127,7 +127,8 @@ static int get_index_all_cpufreq_stat(struct all_cpufreq_stats *all_stat,
 	return -1;
 }
 
-void acct_update_power(struct task_struct *task, cputime_t cputime) {
+void acct_update_power(struct task_struct *task, cputime_t cputime)
+{
 	struct cpufreq_power_stats *powerstats;
 	struct cpufreq_stats *stats;
 	unsigned int cpu_num, curr;
