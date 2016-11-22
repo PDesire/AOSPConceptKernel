@@ -1691,13 +1691,12 @@ exit:
 
 static int swrm_runtime_idle(struct device *dev)
 {
-	 if (pm_runtime_autosuspend_expiration(dev)) {
+	if (pm_runtime_autosuspend_expiration(dev)) {
 		pm_runtime_autosuspend(dev);
 		return -EAGAIN;
 	}
 	return 0;
 }
-
 #endif /* CONFIG_PM_RUNTIME */
 
 static int swrm_device_down(struct device *dev)

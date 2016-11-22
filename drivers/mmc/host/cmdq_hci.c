@@ -153,9 +153,10 @@ static void cmdq_dump_adma_mem(struct cmdq_host *cq_host)
 
 	for_each_set_bit(tag, &data_active_reqs, cq_host->num_slots) {
 		paddr = get_trans_desc_dma(cq_host, tag);
-		pr_err("%s: %s: tag = %d, trans_dma(phys) = %pad, trans_desc(virt) = 0x%p\n",
+		pr_err("%s: %s: tag = %d, trans_dma(phys) = 0x%llx, trans_desc(virt) = 0x%p\n",
 				mmc_hostname(mmc), __func__, tag,
-				&paddr, get_trans_desc(cq_host, tag));
+				get_trans_desc_dma(cq_host, tag),
+				get_trans_desc(cq_host, tag));
 		print_hex_dump(KERN_ERR, "cmdq-adma:", DUMP_PREFIX_ADDRESS,
 				32, 8, get_trans_desc(cq_host, tag),
 				(desc_size), false);

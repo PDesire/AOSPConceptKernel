@@ -437,13 +437,13 @@ module_param_named(
 	int, S_IRUSR | S_IWUSR
 );
 
-static int smbchg_default_hvdcp_icl_ma = 1700;
+static int smbchg_default_hvdcp_icl_ma = 3000;
 module_param_named(
 	default_hvdcp_icl_ma, smbchg_default_hvdcp_icl_ma,
 	int, S_IRUSR | S_IWUSR
 );
 
-static int smbchg_default_dcp_icl_ma = 1500;
+static int smbchg_default_dcp_icl_ma = 1800;
 module_param_named(
 	default_dcp_icl_ma, smbchg_default_dcp_icl_ma,
 	int, S_IRUSR | S_IWUSR
@@ -1633,6 +1633,35 @@ static int smbchg_set_high_usb_chg_current(struct smbchg_chip *chip,
 
 		rc = smbchg_sec_masked_write(chip,
 					chip->usb_chgpth_base + CHGPTH_CFG,
+					CFG_USB_2_3_SEL_BIT, CFG_USB_2);
+		if (rc < 0) {
+			pr_err("Couldn't set CFG_USB_2 rc=%d\n", rc);
+			return rc;
+		}
+
+		rc = smbchg_masked_write(chip, chip->usb_chgpth_base + CMD_IL,
+			USBIN_MODE_CHG_BIT | USB51_MODE_BIT | ICL_OVERRIDE_BIT,
+			USBIN_LIMITED_MODE | USB51_100MA | ICL_OVERRIDE_BIT);
+		if (rc < 0) {
+			pr_err("Couldn't set ICL_OVERRIDE rc=%d\n", rc);
+			return rc;
+		}
+
+		pr_smb(PR_STATUS,
+			"Forcing 100mA current limit\n");
+		chip->usb_max_current_ma = CURRENT_100_MA;
+		return rc;
+	}
+
+	i = find_smaller_in_array(chip->tables.usb_ilim_ma_table,
+			current_ma, chip->tables.usb_ilim_ma_len);
+	if (i < 0) {
+		dev_err(chip->dev,
+			"Cannot find %dma current_table using %d\n",
+			current_ma, CURRENT_150_MA);
+
+		rc = smbchg_sec_masked_write(chip,
+					chip->usb_chgpth_base + CHGPTH_CFG,
 					CFG_USB_2_3_SEL_BIT, CFG_USB_3);
 		rc |= smbchg_masked_write(chip, chip->usb_chgpth_base + CMD_IL,
 					USBIN_MODE_CHG_BIT | USB51_MODE_BIT,
@@ -2442,6 +2471,46 @@ static int usb_suspend_vote_cb(struct device *dev, int suspend,
 static int dc_suspend_vote_cb(struct device *dev, int suspend,
 						int client, int last_suspend,
 						int last_client)
+{
+	int rc;
+	struct smbchg_chip *chip = dev_get_drvdata(dev);
+
+	rc = smbchg_dc_suspend(chip, suspend);
+	if (rc < 0)
+		return rc;
+
+	if (chip->dc_psy_type != -EINVAL && chip->psy_registered)
+		power_supply_changed(&chip->dc_psy);
+
+	return rc;
+}
+
+static int set_fastchg_current_vote_cb(struct device *dev,
+						int fcc_ma,
+						int client,
+						int last_fcc_ma,
+						int last_client)
+{
+	struct smbchg_chip *chip = dev_get_drvdata(dev);
+	int rc;
+
+	if (chip->parallel.current_max_ma == 0) {
+		rc = smbchg_set_fastchg_current_raw(chip, fcc_ma);
+		if (rc < 0) {
+			pr_err("Can't set FCC fcc_ma=%d rc=%d\n", fcc_ma, rc);
+			return rc;
+		}
+	}
+	/*
+	 * check if parallel charging can be enabled, and if enabled,
+	 * distribute the fcc
+	 */
+	smbchg_parallel_usb_check_ok(chip);
+	return 0;
+}
+
+static int smbchg_set_fastchg_current_user(struct smbchg_chip *chip,
+							int current_ma)
 {
 	int rc;
 	struct smbchg_chip *chip = dev_get_drvdata(dev);
@@ -4659,6 +4728,11 @@ static void restore_from_hvdcp_detection(struct smbchg_chip *chip)
 {
 	int rc;
 
+	pr_smb(PR_MISC, "Retracting HVDCP vote for ICL\n");
+	rc = vote(chip->usb_icl_votable, HVDCP_ICL_VOTER, false, 0);
+	if (rc < 0)
+		pr_err("Couldn't retract HVDCP ICL vote rc=%d\n", rc);
+
 	/* switch to 9V HVDCP */
 	rc = smbchg_sec_masked_write(chip, chip->usb_chgpth_base + CHGPTH_CFG,
 				HVDCP_ADAPTER_SEL_MASK, HVDCP_9V);
@@ -4736,6 +4810,31 @@ static int smbchg_restricted_charging(struct smbchg_chip *chip, bool enable)
 #ifdef CONFIG_QPNP_SMBCHARGER_EXTENSION
 #define REMOVE_DELAY_MS			2000
 #endif
+#define RESTRICTED_CHG_FCC_PERCENT	50
+static int smbchg_restricted_charging(struct smbchg_chip *chip, bool enable)
+{
+	int current_table_index, fastchg_current;
+	int rc = 0;
+
+	/* If enable, set the fcc to the set point closest
+	 * to 50% of the configured fcc while remaining below it
+	 */
+	current_table_index = find_smaller_in_array(
+			chip->tables.usb_ilim_ma_table,
+			chip->cfg_fastchg_current_ma
+				* RESTRICTED_CHG_FCC_PERCENT / 100,
+			chip->tables.usb_ilim_ma_len);
+	fastchg_current =
+		chip->tables.usb_ilim_ma_table[current_table_index];
+	rc = vote(chip->fcc_votable, RESTRICTED_CHG_FCC_VOTER, enable,
+			fastchg_current);
+
+	pr_smb(PR_STATUS, "restricted_charging set to %d\n", enable);
+	chip->restricted_charging = enable;
+
+	return rc;
+}
+
 static void handle_usb_removal(struct smbchg_chip *chip)
 {
 	struct power_supply *parallel_psy = get_parallel_psy(chip);
@@ -5261,6 +5360,13 @@ static int smbchg_prepare_for_pulsing(struct smbchg_chip *chip)
 		goto out;
 	}
 
+	pr_smb(PR_MISC, "HVDCP voting for 300mA ICL\n");
+	rc = vote(chip->usb_icl_votable, HVDCP_ICL_VOTER, true, 300);
+	if (rc < 0) {
+		pr_err("Couldn't vote for 300mA HVDCP ICL rc=%d\n", rc);
+		goto out;
+	}
+
 	pr_smb(PR_MISC, "Disable AICL\n");
 	smbchg_sec_masked_write(chip, chip->usb_chgpth_base + USB_AICL_CFG,
 			AICL_EN_BIT, 0);
@@ -5736,6 +5842,20 @@ static int smbchg_dp_dm(struct smbchg_chip *chip, int val)
 	case POWER_SUPPLY_DP_DM_HVDCP3_SUPPORTED:
 		chip->hvdcp3_supported = true;
 		pr_smb(PR_SOMC, "HVDCP3 supported\n");
+		break;
+	case POWER_SUPPLY_DP_DM_ICL_DOWN:
+		chip->usb_icl_delta -= 100;
+		target_icl_vote_ma = get_client_vote(chip->usb_icl_votable,
+						PSY_ICL_VOTER);
+		vote(chip->usb_icl_votable, SW_AICL_ICL_VOTER, true,
+				target_icl_vote_ma + chip->usb_icl_delta);
+		break;
+	case POWER_SUPPLY_DP_DM_ICL_UP:
+		chip->usb_icl_delta += 100;
+		target_icl_vote_ma = get_client_vote(chip->usb_icl_votable,
+						PSY_ICL_VOTER);
+		vote(chip->usb_icl_votable, SW_AICL_ICL_VOTER, true,
+				target_icl_vote_ma + chip->usb_icl_delta);
 		break;
 	case POWER_SUPPLY_DP_DM_ICL_DOWN:
 		chip->usb_icl_delta -= 100;

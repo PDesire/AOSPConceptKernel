@@ -4884,7 +4884,6 @@ static int tasha_codec_enable_mix_path(struct snd_soc_dapm_widget *w,
 		return 0;
 	};
 
-
 	switch (event) {
 	case SND_SOC_DAPM_POST_PMU:
 		if ((tasha->spkr_gain_offset == RX_GAIN_OFFSET_M1P5_DB) &&
@@ -10585,7 +10584,7 @@ static int tasha_set_channel_map(struct snd_soc_dai *dai,
 	if (tasha->intf_type == WCD9XXX_INTERFACE_TYPE_SLIMBUS) {
 		wcd9xxx_init_slimslave(core, core->slim->laddr,
 					   tx_num, tx_slot, rx_num, rx_slot);
-		/* Reserve TX12 for MAD data channel */
+		/* Reserve TX12/TX13 for MAD data channel */
 		dai_data = &tasha->dai[AIF4_MAD_TX];
 		if (dai_data) {
 			if (TASHA_IS_2_0(tasha->wcd9xxx->version))
@@ -10924,6 +10923,8 @@ static int tasha_hw_params(struct snd_pcm_substream *substream,
 			tx_fs_rate = 7;
 			break;
 		default:
+		};
+		if (tx_fs_rate < 0) {
 			dev_err(tasha->dev, "%s: Invalid TX sample rate: %d\n",
 				__func__, params_rate(params));
 			return -EINVAL;
