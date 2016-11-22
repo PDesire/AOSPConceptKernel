@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -387,6 +387,9 @@ static inline u32 msm_isp_evt_mask_to_isp_event(u32 evt_mask)
 	case ISP_EVENT_MASK_INDEX_BUF_FATAL_ERROR:
 		evt_id = ISP_EVENT_BUF_FATAL_ERROR;
 		break;
+	case ISP_EVENT_MASK_INDEX_BUF_DONE:
+		evt_id = ISP_EVENT_BUF_DONE;
+		break;
 	default:
 		evt_id = ISP_EVENT_SUBS_MASK_NONE;
 		break;
@@ -601,27 +604,45 @@ static int msm_isp_set_clk_rate(struct vfe_device *vfe_dev, long *rate)
 	return 0;
 }
 
-
 static int msm_isp_start_fetch_engine(struct vfe_device *vfe_dev,
 	void *arg)
 {
 	struct msm_vfe_fetch_eng_start *fe_cfg = arg;
+	int rc = 0;
+
 	/*
 	 * For Offline VFE, HAL expects same frame id
 	 * for offline output which it requested in do_reprocess.
 	 */
-	vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id =
-		fe_cfg->frame_id;
-	return vfe_dev->hw_info->vfe_ops.core_ops.
-		start_fetch_eng(vfe_dev, arg);
+	vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id = fe_cfg->frame_id;
+
+	rc = vfe_dev->hw_info->vfe_ops.core_ops.start_fetch_eng(vfe_dev, arg);
+	if (rc) {
+		pr_err("%s: fe start fails\n", __func__);
+		return rc;
+	}
+
+	return rc;
 }
 
-void msm_isp_fetch_engine_done_notify(struct vfe_device *vfe_dev,
-	struct msm_vfe_fetch_engine_info *fetch_engine_info)
+void msm_isp_fetch_engine_irq(struct vfe_device *vfe_dev,
+	uint32_t irq_status0, uint32_t irq_status1,
+	struct msm_isp_timestamp *ts)
 {
 	struct msm_isp_event_data fe_rd_done_event;
+	struct msm_vfe_fetch_engine_info *fetch_engine_info =
+		&vfe_dev->fetch_engine_info;
+
 	if (!fetch_engine_info->is_busy)
 		return;
+
+	vfe_dev->fe_curr_mask |= irq_status0;
+	vfe_dev->fe_curr_mask &= vfe_dev->fe_done_mask;
+	if (vfe_dev->fe_curr_mask != vfe_dev->fe_done_mask)
+		return;
+
+	vfe_dev->fe_curr_mask = 0;
+	fetch_engine_info->is_busy = 0;
 
 	memset(&fe_rd_done_event, 0, sizeof(struct msm_isp_event_data));
 	fe_rd_done_event.frame_id =
@@ -637,7 +658,6 @@ void msm_isp_fetch_engine_done_notify(struct vfe_device *vfe_dev,
 
 	ISP_DBG("%s:VFE%d ISP_EVENT_FE_READ_DONE buf_idx %d\n",
 		__func__, vfe_dev->pdev->id, fetch_engine_info->buf_idx);
-	fetch_engine_info->is_busy = 0;
 	msm_isp_send_event(vfe_dev, ISP_EVENT_FE_READ_DONE, &fe_rd_done_event);
 }
 
@@ -1093,9 +1113,9 @@ static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 		break;
 	case VIDIOC_MSM_ISP_FETCH_ENG_START:
 	case VIDIOC_MSM_ISP_MAP_BUF_START_FE:
-		mutex_lock(&vfe_dev->core_mutex);
+		mutex_lock(&vfe_dev->buf_mgr_mutex);
 		rc = msm_isp_start_fetch_engine(vfe_dev, arg);
-		mutex_unlock(&vfe_dev->core_mutex);
+		mutex_unlock(&vfe_dev->buf_mgr_mutex);
 		break;
 	case VIDIOC_MSM_ISP_REG_UPDATE_CMD:
 		if (arg) {
@@ -1134,6 +1154,9 @@ static long msm_isp_ioctl_unlocked(struct v4l2_subdev *sd,
 		mutex_lock(&vfe_dev->core_mutex);
 		rc = msm_isp_update_axi_stream(vfe_dev, arg);
 		mutex_unlock(&vfe_dev->core_mutex);
+		break;
+	case VIDIOC_MSM_ISP_FRAME_REQUEST:
+		rc = msm_isp_request_frame(vfe_dev, arg);
 		break;
 	case VIDIOC_MSM_ISP_SMMU_ATTACH:
 		mutex_lock(&vfe_dev->core_mutex);
@@ -1696,6 +1719,10 @@ int msm_isp_cal_word_per_line(uint32_t output_format,
 	case V4L2_PIX_FMT_P16GBRG10:
 	case V4L2_PIX_FMT_P16GRBG10:
 	case V4L2_PIX_FMT_P16RGGB10:
+	case V4L2_PIX_FMT_P16BGGR12:
+	case V4L2_PIX_FMT_P16GBRG12:
+	case V4L2_PIX_FMT_P16GRBG12:
+	case V4L2_PIX_FMT_P16RGGB12:
 		val = CAL_WORD(pixel_per_line, 1, 4);
 	break;
 	case V4L2_PIX_FMT_NV24:
@@ -1751,6 +1778,10 @@ enum msm_isp_pack_fmt msm_isp_get_pack_format(uint32_t output_format)
 	case V4L2_PIX_FMT_P16GBRG10:
 	case V4L2_PIX_FMT_P16GRBG10:
 	case V4L2_PIX_FMT_P16RGGB10:
+	case V4L2_PIX_FMT_P16BGGR12:
+	case V4L2_PIX_FMT_P16GBRG12:
+	case V4L2_PIX_FMT_P16GRBG12:
+	case V4L2_PIX_FMT_P16RGGB12:
 		return PLAIN16;
 	default:
 		msm_isp_print_fourcc_error(__func__, output_format);
@@ -1824,6 +1855,10 @@ int msm_isp_get_bit_per_pixel(uint32_t output_format)
 	case V4L2_PIX_FMT_QGBRG12:
 	case V4L2_PIX_FMT_QGRBG12:
 	case V4L2_PIX_FMT_QRGGB12:
+	case V4L2_PIX_FMT_P16BGGR12:
+	case V4L2_PIX_FMT_P16GBRG12:
+	case V4L2_PIX_FMT_P16GRBG12:
+	case V4L2_PIX_FMT_P16RGGB12:
 	case V4L2_PIX_FMT_Y12:
 		return 12;
 	case V4L2_PIX_FMT_SBGGR14:
@@ -1849,6 +1884,66 @@ int msm_isp_get_bit_per_pixel(uint32_t output_format)
 			__func__, output_format);
 		return -EINVAL;
 	}
+}
+
+uint32_t msm_isp_get_fe_unpack_pattern(uint32_t input_format)
+{
+	uint32_t unpack_pattern = 0;
+
+	switch (input_format) {
+	case V4L2_PIX_FMT_P16BGGR8:
+	case V4L2_PIX_FMT_P16GBRG8:
+	case V4L2_PIX_FMT_P16GRBG8:
+	case V4L2_PIX_FMT_P16RGGB8:
+		unpack_pattern = 0x90;
+		break;
+	case V4L2_PIX_FMT_P16BGGR10:
+	case V4L2_PIX_FMT_P16GBRG10:
+	case V4L2_PIX_FMT_P16GRBG10:
+	case V4L2_PIX_FMT_P16RGGB10:
+		unpack_pattern = 0xB210;
+		break;
+	case V4L2_PIX_FMT_P16BGGR12:
+	case V4L2_PIX_FMT_P16GBRG12:
+	case V4L2_PIX_FMT_P16GRBG12:
+	case V4L2_PIX_FMT_P16RGGB12:
+		unpack_pattern = 0xB210;
+		break;
+	case V4L2_PIX_FMT_QBGGR8:
+	case V4L2_PIX_FMT_QGBRG8:
+	case V4L2_PIX_FMT_QGRBG8:
+	case V4L2_PIX_FMT_QRGGB8:
+	case V4L2_PIX_FMT_SBGGR8:
+	case V4L2_PIX_FMT_SGBRG8:
+	case V4L2_PIX_FMT_SGRBG8:
+	case V4L2_PIX_FMT_SRGGB8:
+	case V4L2_PIX_FMT_QBGGR10:
+	case V4L2_PIX_FMT_QGBRG10:
+	case V4L2_PIX_FMT_QGRBG10:
+	case V4L2_PIX_FMT_QRGGB10:
+	case V4L2_PIX_FMT_SBGGR10:
+	case V4L2_PIX_FMT_SGBRG10:
+	case V4L2_PIX_FMT_SGRBG10:
+	case V4L2_PIX_FMT_SRGGB10:
+	case V4L2_PIX_FMT_QBGGR12:
+	case V4L2_PIX_FMT_QGBRG12:
+	case V4L2_PIX_FMT_QGRBG12:
+	case V4L2_PIX_FMT_QRGGB12:
+	case V4L2_PIX_FMT_SBGGR12:
+	case V4L2_PIX_FMT_SGBRG12:
+	case V4L2_PIX_FMT_SGRBG12:
+	case V4L2_PIX_FMT_SRGGB12:
+		unpack_pattern = 0xF6543210;
+		break;
+	default:
+		pr_err("%s: Input format %x not supported", __func__,
+			input_format);
+		unpack_pattern = 0xF6543210;
+		break;
+	}
+
+
+	return unpack_pattern;
 }
 
 void msm_isp_update_error_frame_count(struct vfe_device *vfe_dev)
@@ -2017,7 +2112,13 @@ void msm_isp_reset_burst_count_and_frame_drop(
 		stream_info->stream_type != BURST_STREAM) {
 		return;
 	}
-	if (stream_info->num_burst_capture != 0) {
+
+	if (stream_info->controllable_output) {
+		msm_isp_update_fr_framedrop(stream_info,
+			stream_info->request_q_cnt);
+		msm_isp_reset_framedrop(vfe_dev, stream_info);
+	} else if (stream_info->stream_type == BURST_STREAM &&
+		stream_info->num_burst_capture != 0) {
 		framedrop_period = msm_isp_get_framedrop_period(
 		   stream_info->frame_skip_pattern);
 		stream_info->burst_frame_count =
@@ -2155,6 +2256,8 @@ void msm_isp_do_tasklet(unsigned long data)
 		irq_ops->process_reg_update(vfe_dev,
 			irq_status0, irq_status1, &ts);
 		irq_ops->process_epoch_irq(vfe_dev,
+			irq_status0, irq_status1, &ts);
+		irq_ops->process_fe_irq(vfe_dev,
 			irq_status0, irq_status1, &ts);
 	}
 }

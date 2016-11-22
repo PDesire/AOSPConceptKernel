@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -139,6 +139,9 @@ struct msm_vfe_irq_ops {
 	void (*process_stats_irq) (struct vfe_device *vfe_dev,
 		uint32_t irq_status0, uint32_t irq_status1,
 		struct msm_isp_timestamp *ts);
+	void (*process_fe_irq) (struct vfe_device *vfe_dev,
+		uint32_t irq_status0, uint32_t irq_status1,
+		struct msm_isp_timestamp *ts);
 };
 
 struct msm_vfe_axi_ops {
@@ -187,7 +190,7 @@ struct msm_vfe_axi_ops {
 	uint32_t (*get_pingpong_status) (struct vfe_device *vfe_dev);
 	int (*halt) (struct vfe_device *vfe_dev, uint32_t blocking);
 	int (*restart) (struct vfe_device *vfe_dev, uint32_t blocking,
-		uint32_t enable_camif);
+		uint32_t enable_camif, uint32_t enable_ext_read);
 	void (*update_cgc_override) (struct vfe_device *vfe_dev,
 		uint8_t wm_idx, uint8_t cgc_override);
 };
@@ -718,6 +721,8 @@ struct vfe_device {
 	uint32_t isp_raw0_debug;
 	uint32_t isp_raw1_debug;
 	uint32_t isp_raw2_debug;
+	uint32_t fe_curr_mask;
+	uint32_t fe_done_mask;
 };
 
 struct vfe_parent_device {

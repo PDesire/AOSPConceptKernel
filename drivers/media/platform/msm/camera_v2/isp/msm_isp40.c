@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -461,11 +461,8 @@ static void msm_vfe40_process_input_irq(struct vfe_device *vfe_dev,
 		msm_isp_increment_frame_id(vfe_dev, VFE_PIX_0, ts);
 	}
 
-	if (irq_status0 & (1 << 24)) {
+	if (irq_status0 & (1 << 24))
 		ISP_DBG("%s: Fetch Engine Read IRQ\n", __func__);
-		msm_isp_fetch_engine_done_notify(vfe_dev,
-				&vfe_dev->fetch_engine_info);
-	}
 
 	if (irq_status0 & (1 << 1))
 		ISP_DBG("%s: EOF IRQ\n", __func__);
@@ -671,7 +668,6 @@ static void msm_vfe40_process_reg_update(struct vfe_device *vfe_dev,
 {
 	enum msm_vfe_input_src i;
 	uint32_t shift_irq;
-	uint8_t reg_updated = 0;
 	unsigned long flags;
 	struct msm_vfe_axi_stream *stream_info = NULL;
 	uint32_t j = 0;
@@ -681,9 +677,15 @@ static void msm_vfe40_process_reg_update(struct vfe_device *vfe_dev,
 	/* Shift status bits so that PIX REG UPDATE is 1st bit */
 	shift_irq = ((irq_status0 & 0xF0) >> 4);
 
+	spin_lock_irqsave(&vfe_dev->reg_update_lock, flags);
+	if (shift_irq & BIT(VFE_PIX_0))
+		vfe_dev->reg_updated = 1;
+
+	vfe_dev->reg_update_requested &= ~shift_irq;
+	spin_unlock_irqrestore(&vfe_dev->reg_update_lock, flags);
+
 	for (i = VFE_PIX_0; i <= VFE_RAW_2; i++) {
 		if (shift_irq & BIT(i)) {
-			reg_updated |= BIT(i);
 			ISP_DBG("%s REG_UPDATE IRQ %x\n", __func__,
 				(uint32_t)BIT(i));
 			switch (i) {
@@ -706,6 +708,15 @@ static void msm_vfe40_process_reg_update(struct vfe_device *vfe_dev,
 					CAMIF_STOPPING)
 					vfe_dev->hw_info->vfe_ops.core_ops.
 						reg_update(vfe_dev, i);
+
+				if (vfe_dev->axi_data.src_info[i].input_mux !=
+					EXTERNAL_READ)
+					break;
+
+				msm_isp_notify(vfe_dev, ISP_EVENT_SOF, i, ts);
+				msm_isp_update_framedrop_reg(vfe_dev, i);
+				msm_isp_update_stats_framedrop_reg(vfe_dev);
+				msm_isp_update_error_frame_count(vfe_dev);
 				break;
 			case VFE_RAW_0:
 			case VFE_RAW_1:
@@ -737,13 +748,6 @@ static void msm_vfe40_process_reg_update(struct vfe_device *vfe_dev,
 			}
 		}
 	}
-
-	spin_lock_irqsave(&vfe_dev->reg_update_lock, flags);
-	if (reg_updated & BIT(VFE_PIX_0))
-		vfe_dev->reg_updated = 1;
-
-	vfe_dev->reg_update_requested &= ~reg_updated;
-	spin_unlock_irqrestore(&vfe_dev->reg_update_lock, flags);
 }
 
 static void msm_vfe40_reg_update(struct vfe_device *vfe_dev,
@@ -1091,9 +1095,6 @@ static int msm_vfe40_start_fetch_engine(struct vfe_device *vfe_dev,
 	struct msm_isp_buffer *buf = NULL;
 	struct msm_vfe_fetch_eng_start *fe_cfg = arg;
 	struct msm_isp_buffer_mapped_info mapped_info;
-	struct dual_vfe_resource *dual_vfe_res = NULL;
-
-	dual_vfe_res = vfe_dev->common_data->dual_vfe_res;
 
 	if (vfe_dev->fetch_engine_info.is_busy == 1) {
 		pr_err("%s: fetch engine busy\n", __func__);
@@ -1126,19 +1127,18 @@ static int msm_vfe40_start_fetch_engine(struct vfe_device *vfe_dev,
 	} else {
 		rc = vfe_dev->buf_mgr->ops->map_buf(vfe_dev->buf_mgr,
 			&mapped_info, fe_cfg->fd);
-	if (rc < 0) {
-			pr_err("%s: can not map buffer\n", __func__);
-		return -EINVAL;
-	}
+		if (rc < 0) {
+				pr_err("%s: can not map buffer\n", __func__);
+			return -EINVAL;
+		}
 	}
 	vfe_dev->fetch_engine_info.buf_idx = fe_cfg->buf_idx;
 	vfe_dev->fetch_engine_info.is_busy = 1;
 
 	msm_camera_io_w(mapped_info.paddr, vfe_dev->vfe_base + 0x228);
-	vfe_dev->axi_data.src_info[VFE_PIX_0].frame_id =
-		dual_vfe_res->axi_data[!vfe_dev->pdev->id]->
-		src_info[VFE_PIX_0].frame_id;
-	msm_camera_io_w_mb(0x1, vfe_dev->vfe_base + 0x378);
+
+	vfe_dev->hw_info->vfe_ops.core_ops.reg_update(vfe_dev, VFE_PIX_0);
+
 	msm_camera_io_w_mb(0x10000, vfe_dev->vfe_base + 0x4C);
 	msm_camera_io_w_mb(0x20000, vfe_dev->vfe_base + 0x4C);
 
@@ -1151,6 +1151,7 @@ static void msm_vfe40_cfg_fetch_engine(struct vfe_device *vfe_dev,
 {
 	uint32_t x_size_word;
 	uint32_t temp = 0;
+	uint32_t unpack_pattern = 0;
 	struct msm_vfe_fetch_engine_cfg *fe_cfg = NULL;
 
 	if (pix_cfg->input_mux != EXTERNAL_READ) {
@@ -1177,8 +1178,8 @@ static void msm_vfe40_cfg_fetch_engine(struct vfe_device *vfe_dev,
 	temp |= (1 << 24);
 	msm_camera_io_w(temp, vfe_dev->vfe_base + 0x28);
 
-	msm_camera_io_w((fe_cfg->fetch_height - 1),
-			vfe_dev->vfe_base + 0x238);
+	msm_camera_io_w((fe_cfg->fetch_height - 1) & 0xFFF,
+		vfe_dev->vfe_base + 0x238);
 
 	/* need to update to use formulae to calculate X_SIZE_WORD*/
 	x_size_word = msm_isp_cal_word_per_line(
@@ -1187,22 +1188,24 @@ static void msm_vfe40_cfg_fetch_engine(struct vfe_device *vfe_dev,
 
 	msm_camera_io_w((x_size_word - 1) << 16, vfe_dev->vfe_base + 0x23C);
 
+	msm_camera_io_w(x_size_word << 16 | (fe_cfg->buf_height - 1) << 4 |
+		VFE40_FETCH_BURST_LEN, vfe_dev->vfe_base + 0x240);
+
+	msm_camera_io_w(0 << 28 | 2 << 25 |
+		((fe_cfg->buf_width - 1) & 0x1FFF) << 12 |
+		((fe_cfg->buf_height - 1) & 0xFFF), vfe_dev->vfe_base + 0x244);
+
+	unpack_pattern = msm_isp_get_fe_unpack_pattern(
+		vfe_dev->axi_data.src_info[VFE_PIX_0].input_format);
+	msm_camera_io_w(unpack_pattern, vfe_dev->vfe_base + 0x248);
+
+	msm_camera_io_w(0xF, vfe_dev->vfe_base + 0x264);
+
 	temp = msm_camera_io_r(vfe_dev->vfe_base + 0x1C);
 	temp |= 2 << 16 | pix_cfg->pixel_pattern;
 	msm_camera_io_w(temp, vfe_dev->vfe_base + 0x1C);
 
-	msm_camera_io_w(x_size_word  << 16 |
-		(fe_cfg->buf_height-1) << 4 |
-		VFE40_FETCH_BURST_LEN, vfe_dev->vfe_base + 0x240);
-
-	msm_camera_io_w(0 << 28 | 2 << 25 |
-		(fe_cfg->buf_width - 1)  << 12 |
-		(fe_cfg->buf_height - 1)
-		, vfe_dev->vfe_base + 0x244);
-
-	/* need to use formulae to calculate MAIN_UNPACK_PATTERN*/
-	msm_camera_io_w(0xF6543210, vfe_dev->vfe_base + 0x248);
-	msm_camera_io_w(0xF, vfe_dev->vfe_base + 0x264);
+	vfe_dev->fe_done_mask |= (1 << 24);
 
 	return;
 }
@@ -1800,14 +1803,16 @@ static int msm_vfe40_axi_halt(struct vfe_device *vfe_dev,
 }
 
 static int msm_vfe40_axi_restart(struct vfe_device *vfe_dev,
-	uint32_t blocking, uint32_t enable_camif)
+	uint32_t blocking, uint32_t enable_camif, uint32_t enable_ext_read)
 {
 	vfe_dev->hw_info->vfe_ops.core_ops.restore_irq_mask(vfe_dev);
 	/* Clear IRQ Status */
 	msm_camera_io_w(0x7FFFFFFF, vfe_dev->vfe_base + 0x30);
 	msm_camera_io_w(0xFEFFFEFF, vfe_dev->vfe_base + 0x34);
 	msm_camera_io_w(0x1, vfe_dev->vfe_base + 0x24);
-	msm_camera_io_w_mb(0x140000, vfe_dev->vfe_base + 0x318);
+
+	if (enable_camif)
+		msm_camera_io_w_mb(0x140000, vfe_dev->vfe_base + 0x318);
 
 	/* Start AXI */
 	msm_camera_io_w(0x0, vfe_dev->vfe_base + 0x2C0);
@@ -1817,8 +1822,11 @@ static int msm_vfe40_axi_restart(struct vfe_device *vfe_dev,
 	atomic_set(&vfe_dev->error_info.overflow_state, NO_OVERFLOW);
 
 	if (enable_camif) {
-		vfe_dev->hw_info->vfe_ops.core_ops.
-		update_camif_state(vfe_dev, ENABLE_CAMIF);
+		vfe_dev->hw_info->vfe_ops.core_ops.update_camif_state(vfe_dev,
+			ENABLE_CAMIF);
+	} else if (enable_ext_read) {
+		msm_camera_io_w_mb(0x10000, vfe_dev->vfe_base + 0x4C);
+		msm_camera_io_w_mb(0x20000, vfe_dev->vfe_base + 0x4C);
 	}
 
 	return 0;
@@ -1918,6 +1926,11 @@ static void msm_vfe40_stats_cfg_comp_mask(struct vfe_device *vfe_dev,
 	}
 	msm_camera_io_w(comp_mask_reg, vfe_dev->vfe_base + 0x44);
 
+	if (enable && stats_mask)
+		vfe_dev->fe_done_mask |=  ((1 << 29) << request_comp_index);
+	else
+		vfe_dev->fe_done_mask &= ~((1 << 29) << request_comp_index);
+
 	ISP_DBG("%s: comp_mask_reg: %x comp mask0 %x mask1: %x\n",
 		__func__, comp_mask_reg,
 		atomic_read(&stats_data->stats_comp_mask[0]),
@@ -1934,6 +1947,9 @@ static void msm_vfe40_stats_cfg_wm_irq_mask(
 	irq_mask = msm_camera_io_r(vfe_dev->vfe_base + 0x28);
 	irq_mask |= 1 << (STATS_IDX(stream_info->stream_handle) + 16);
 	msm_camera_io_w(irq_mask, vfe_dev->vfe_base + 0x28);
+
+	vfe_dev->fe_done_mask |=
+		1 << (STATS_IDX(stream_info->stream_handle) + 16);
 }
 
 static void msm_vfe40_stats_clear_wm_irq_mask(
@@ -1944,6 +1960,9 @@ static void msm_vfe40_stats_clear_wm_irq_mask(
 	irq_mask = msm_camera_io_r(vfe_dev->vfe_base + 0x28);
 	irq_mask &= ~(1 << (STATS_IDX(stream_info->stream_handle) + 16));
 	msm_camera_io_w(irq_mask, vfe_dev->vfe_base + 0x28);
+
+	vfe_dev->fe_done_mask &=
+		~(1 << (STATS_IDX(stream_info->stream_handle) + 16));
 }
 
 static void msm_vfe40_stats_cfg_wm_reg(
@@ -2265,6 +2284,7 @@ struct msm_vfe_hardware_info vfe40_hw_info = {
 			.process_axi_irq = msm_isp_process_axi_irq,
 			.process_stats_irq = msm_isp_process_stats_irq,
 			.process_epoch_irq = msm_vfe40_process_epoch_irq,
+			.process_fe_irq = msm_isp_fetch_engine_irq,
 		},
 		.axi_ops = {
 			.reload_wm = msm_vfe40_axi_reload_wm,

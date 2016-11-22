@@ -48,6 +48,7 @@ int msm_isp_request_axi_stream(struct vfe_device *vfe_dev, void *arg);
 int msm_isp_cfg_axi_stream(struct vfe_device *vfe_dev, void *arg);
 int msm_isp_release_axi_stream(struct vfe_device *vfe_dev, void *arg);
 int msm_isp_update_axi_stream(struct vfe_device *vfe_dev, void *arg);
+int msm_isp_request_frame(struct vfe_device *vfe_dev, void *arg);
 void msm_isp_axi_cfg_update(struct vfe_device *vfe_dev,
 	enum msm_vfe_input_src frame_src);
 int msm_isp_axi_halt(struct vfe_device *vfe_dev,
@@ -80,5 +81,8 @@ void msm_isp_increment_frame_id(struct vfe_device *vfe_dev,
 int msm_isp_drop_frame(struct vfe_device *vfe_dev,
 	struct msm_vfe_axi_stream *stream_info, struct msm_isp_timestamp *ts,
 	struct msm_isp_sof_info *sof_info);
+
+void msm_isp_update_fr_framedrop(struct msm_vfe_axi_stream *stream_info,
+	uint32_t burst_count);
 
 #endif /* __MSM_ISP_AXI_UTIL_H__ */

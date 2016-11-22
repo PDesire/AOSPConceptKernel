@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -319,16 +319,13 @@ static void msm_vfe46_process_input_irq(struct vfe_device *vfe_dev,
 	if (!(irq_status0 & 0x1000003))
 		return;
 
-	if (irq_status0 & (1 << 24)) {
-		ISP_DBG("%s: Fetch Engine Read IRQ\n", __func__);
-		msm_isp_fetch_engine_done_notify(vfe_dev,
-			&vfe_dev->fetch_engine_info);
-	}
-
 	if (irq_status0 & (1 << 0)) {
 		ISP_DBG("%s: SOF IRQ\n", __func__);
 		msm_isp_increment_frame_id(vfe_dev, VFE_PIX_0, ts);
 	}
+
+	if (irq_status0 & (1 << 24))
+		ISP_DBG("%s: Fetch Engine Read IRQ\n", __func__);
 
 	if (irq_status0 & (1 << 1))
 		ISP_DBG("%s: EOF IRQ\n", __func__);
@@ -976,6 +973,7 @@ static void msm_vfe46_cfg_fetch_engine(struct vfe_device *vfe_dev,
 		temp |= pix_cfg->pixel_pattern;
 		msm_camera_io_w(temp, vfe_dev->vfe_base + 0x50);
 
+		vfe_dev->fe_done_mask |= (1 << 24);
 	} else {
 		pr_err("%s: Invalid mux configuration - mux: %d", __func__,
 			pix_cfg->input_mux);
@@ -1546,13 +1544,15 @@ static int msm_vfe46_axi_halt(struct vfe_device *vfe_dev,
 }
 
 static int msm_vfe46_axi_restart(struct vfe_device *vfe_dev,
-	uint32_t blocking, uint32_t enable_camif)
+	uint32_t blocking, uint32_t enable_camif, uint32_t enable_ext_read)
 {
 	vfe_dev->hw_info->vfe_ops.core_ops.restore_irq_mask(vfe_dev);
 	msm_camera_io_w(0x7FFFFFFF, vfe_dev->vfe_base + 0x64);
 	msm_camera_io_w(0xFFFFFEFF, vfe_dev->vfe_base + 0x68);
 	msm_camera_io_w(0x1, vfe_dev->vfe_base + 0x58);
-	msm_camera_io_w_mb(0x140000, vfe_dev->vfe_base + 0x3CC);
+
+	if (enable_camif)
+		msm_camera_io_w_mb(0x140000, vfe_dev->vfe_base + 0x3CC);
 
 	/* Start AXI */
 	msm_camera_io_w(0x0, vfe_dev->vfe_base + 0x374);
@@ -1562,8 +1562,11 @@ static int msm_vfe46_axi_restart(struct vfe_device *vfe_dev,
 	atomic_set(&vfe_dev->error_info.overflow_state, NO_OVERFLOW);
 
 	if (enable_camif) {
-		vfe_dev->hw_info->vfe_ops.core_ops.
-		update_camif_state(vfe_dev, ENABLE_CAMIF);
+		vfe_dev->hw_info->vfe_ops.core_ops.update_camif_state(vfe_dev,
+			ENABLE_CAMIF);
+	} else if (enable_ext_read) {
+		msm_camera_io_w_mb(0x10000, vfe_dev->vfe_base + 0x80);
+		msm_camera_io_w_mb(0x20000, vfe_dev->vfe_base + 0x80);
 	}
 
 	return 0;
@@ -1691,6 +1694,11 @@ static void msm_vfe46_stats_cfg_comp_mask(
 	}
 	msm_camera_io_w(comp_mask_reg, vfe_dev->vfe_base + 0x78);
 
+	if (enable && stats_mask)
+		vfe_dev->fe_done_mask |=  ((1 << 29) << request_comp_index);
+	else
+		vfe_dev->fe_done_mask &= ~((1 << 29) << request_comp_index);
+
 	ISP_DBG("%s: comp_mask_reg: %x comp mask0 %x mask1: %x\n",
 		__func__, comp_mask_reg,
 		atomic_read(&stats_data->stats_comp_mask[0]),
@@ -1708,6 +1716,9 @@ static void msm_vfe46_stats_cfg_wm_irq_mask(
 	irq_mask = msm_camera_io_r(vfe_dev->vfe_base + 0x5C);
 	irq_mask |= 1 << (STATS_IDX(stream_info->stream_handle) + 15);
 	msm_camera_io_w(irq_mask, vfe_dev->vfe_base + 0x5C);
+
+	vfe_dev->fe_done_mask |=
+		1 << (STATS_IDX(stream_info->stream_handle) + 15);
 }
 
 static void msm_vfe46_stats_clear_wm_irq_mask(
@@ -1719,6 +1730,9 @@ static void msm_vfe46_stats_clear_wm_irq_mask(
 	irq_mask = msm_camera_io_r(vfe_dev->vfe_base + 0x5C);
 	irq_mask &= ~(1 << (STATS_IDX(stream_info->stream_handle) + 15));
 	msm_camera_io_w(irq_mask, vfe_dev->vfe_base + 0x5C);
+
+	vfe_dev->fe_done_mask &=
+		~(1 << (STATS_IDX(stream_info->stream_handle) + 15));
 }
 
 static void msm_vfe46_stats_cfg_wm_reg(
@@ -2066,6 +2080,7 @@ struct msm_vfe_hardware_info vfe46_hw_info = {
 			.process_axi_irq = msm_isp_process_axi_irq,
 			.process_stats_irq = msm_isp_process_stats_irq,
 			.process_epoch_irq = msm_vfe46_process_epoch_irq,
+			.process_fe_irq = msm_isp_fetch_engine_irq,
 		},
 		.axi_ops = {
 			.reload_wm = msm_vfe46_axi_reload_wm,

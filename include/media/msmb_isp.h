@@ -1,4 +1,4 @@
-/* Copyright (c) 2014-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2014-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -28,6 +28,7 @@
 #define ISP_META_CHANNEL_BIT  (0x10000 << 3)
 #define ISP_SCRATCH_BUF_BIT   (0x10000 << 4)
 #define ISP_OFFLINE_STATS_BIT (0x10000 << 5)
+#define ISP_INPUT_BUF_BIT     (0x10000 << 6)
 #define ISP_STATS_STREAM_BIT  0x80000000
 
 struct msm_vfe_cfg_cmd_list;
@@ -308,7 +309,6 @@ enum msm_vfe_axi_stream_update_type {
 	UPDATE_STREAM_FRAMEDROP_PATTERN,
 	UPDATE_STREAM_STATS_FRAMEDROP_PATTERN,
 	UPDATE_STREAM_AXI_CONFIG,
-	UPDATE_STREAM_REQUEST_FRAMES,
 	UPDATE_STREAM_ADD_BUFQ,
 	UPDATE_STREAM_REMOVE_BUFQ,
 	UPDATE_STREAM_SW_FRAME_DROP,
@@ -329,7 +329,6 @@ struct msm_vfe_axi_stream_cfg_update_info {
 	uint32_t stream_handle;
 	uint32_t output_format;
 	uint32_t user_stream_id;
-	uint32_t frame_id;
 	enum msm_vfe_frame_skip_pattern skip_pattern;
 	struct msm_vfe_axi_plane_cfg plane_cfg[MAX_PLANES_PER_STREAM];
 	struct msm_isp_sw_framskip sw_skip_info;
@@ -348,6 +347,7 @@ struct msm_vfe_axi_reset_cmd {
 
 struct msm_vfe_axi_restart_cmd {
 	uint32_t enable_camif;
+	uint32_t enable_ext_read;
 };
 
 struct msm_vfe_axi_stream_update_cmd {
@@ -355,6 +355,18 @@ struct msm_vfe_axi_stream_update_cmd {
 	enum msm_vfe_axi_stream_update_type update_type;
 	struct msm_vfe_axi_stream_cfg_update_info
 					update_info[MSM_ISP_STATS_MAX];
+};
+
+struct msm_vfe_axi_frame_request_info {
+  uint32_t stream_handle;
+  uint32_t user_stream_id;
+  uint32_t frame_id;
+};
+
+struct msm_vfe_axi_frame_request_cmd {
+  uint32_t num_streams;
+  struct msm_vfe_axi_frame_request_info
+          frame_request_info[MSM_ISP_STATS_MAX];
 };
 
 struct msm_vfe_smmu_attach_cmd {
@@ -550,7 +562,8 @@ enum msm_isp_event_mask_index {
 	ISP_EVENT_MASK_INDEX_PING_PONG_MISMATCH		= 10,
 	ISP_EVENT_MASK_INDEX_REG_UPDATE_MISSING		= 11,
 	ISP_EVENT_MASK_INDEX_BUF_FATAL_ERROR		= 12,
-	ISP_EVENT_MASK_INDEX_MAX		            = 13
+	ISP_EVENT_MASK_INDEX_BUF_DONE			= 13,
+	ISP_EVENT_MASK_INDEX_MAX			= 14
 };
 
 
@@ -576,6 +589,9 @@ enum msm_isp_event_mask_index {
 
 #define ISP_EVENT_SUBS_MASK_BUF_DIVERT \
 			(1 << ISP_EVENT_MASK_INDEX_BUF_DIVERT)
+
+#define ISP_EVENT_SUBS_MASK_BUF_DONE \
+			(1 << ISP_EVENT_MASK_INDEX_BUF_DONE)
 
 #define ISP_EVENT_SUBS_MASK_COMP_STATS_NOTIFY \
 			(1 << ISP_EVENT_MASK_INDEX_COMP_STATS_NOTIFY)
@@ -782,10 +798,18 @@ struct msm_isp_set_stats_ab {
 #define V4L2_PIX_FMT_QGBRG14 v4l2_fourcc('Q', 'G', 'B', '4')
 #define V4L2_PIX_FMT_QGRBG14 v4l2_fourcc('Q', 'G', 'R', '4')
 #define V4L2_PIX_FMT_QRGGB14 v4l2_fourcc('Q', 'R', 'G', '4')
+#define V4L2_PIX_FMT_P16BGGR8 v4l2_fourcc('P', 'B', 'G', '8')
+#define V4L2_PIX_FMT_P16GBRG8 v4l2_fourcc('P', 'G', 'B', '8')
+#define V4L2_PIX_FMT_P16GRBG8 v4l2_fourcc('P', 'G', 'R', '8')
+#define V4L2_PIX_FMT_P16RGGB8 v4l2_fourcc('P', 'R', 'G', '8')
 #define V4L2_PIX_FMT_P16BGGR10 v4l2_fourcc('P', 'B', 'G', '0')
 #define V4L2_PIX_FMT_P16GBRG10 v4l2_fourcc('P', 'G', 'B', '0')
 #define V4L2_PIX_FMT_P16GRBG10 v4l2_fourcc('P', 'G', 'R', '0')
 #define V4L2_PIX_FMT_P16RGGB10 v4l2_fourcc('P', 'R', 'G', '0')
+#define V4L2_PIX_FMT_P16BGGR12 v4l2_fourcc('P', 'B', 'G', '2')
+#define V4L2_PIX_FMT_P16GBRG12 v4l2_fourcc('P', 'G', 'B', '2')
+#define V4L2_PIX_FMT_P16GRBG12 v4l2_fourcc('P', 'G', 'R', '2')
+#define V4L2_PIX_FMT_P16RGGB12 v4l2_fourcc('P', 'R', 'G', '2')
 #define V4L2_PIX_FMT_NV14 v4l2_fourcc('N', 'V', '1', '4')
 #define V4L2_PIX_FMT_NV41 v4l2_fourcc('N', 'V', '4', '1')
 #define V4L2_PIX_FMT_META v4l2_fourcc('Q', 'M', 'E', 'T')
@@ -873,5 +897,8 @@ struct msm_isp_set_stats_ab {
 
 #define VIDIOC_MSM_ISP_UNMAP_BUF \
 	_IOWR('V', BASE_VIDIOC_PRIVATE+25, struct msm_isp_unmap_buf_req)
+
+#define VIDIOC_MSM_ISP_FRAME_REQUEST \
+  _IOWR('V', BASE_VIDIOC_PRIVATE+26, struct msm_vfe_axi_frame_request_cmd)
 
 #endif /* __MSMB_ISP__ */

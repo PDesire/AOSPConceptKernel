@@ -126,6 +126,15 @@ struct msm_vidc_vui_display_info_payload {
 	unsigned int chroma_sample_loc_type_bottom_field;
 };
 
+struct msm_vidc_override_qp_payload {
+	unsigned int override_qp_info_size;
+	unsigned int b_is_pq_info_available;
+	unsigned int b_is_roi_info_available;
+	signed int average_delta_qp;
+	unsigned int reserved1;
+	unsigned int reserved2;
+	unsigned int pPQInfo[0];
+};
 enum msm_vidc_extradata_type {
 	MSM_VIDC_EXTRADATA_NONE = 0x00000000,
 	MSM_VIDC_EXTRADATA_MB_QUANTIZATION = 0x00000001,
@@ -141,6 +150,7 @@ enum msm_vidc_extradata_type {
 	MSM_VIDC_EXTRADATA_STREAM_USERDATA = 0x0000000E,
 	MSM_VIDC_EXTRADATA_FRAME_QP = 0x0000000F,
 	MSM_VIDC_EXTRADATA_FRAME_BITS_INFO = 0x00000010,
+	MSM_VIDC_EXTRADATA_QP_OVERRIDE_INFO = 0x00000017,
 	MSM_VIDC_EXTRADATA_INPUT_CROP = 0x0700000E,
 	MSM_VIDC_EXTRADATA_DIGITAL_ZOOM = 0x07000010,
 	MSM_VIDC_EXTRADATA_MULTISLICE_INFO = 0x7F100000,

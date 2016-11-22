@@ -12,8 +12,8 @@
  */
 
 #include "msm8976-pinctrl.dtsi"
-#include "msm8976-camera-sensor-mtp.dtsi"
-#include "msm8976-mdss-mtp.dtsi"
+#include "msm8976-camera-sensor-ipc.dtsi"
+#include "msm8976-mdss-ipc.dtsi"
 #include "msm8976-wsa881x.dtsi"
 
 &i2c_4 { /* BLSP1 QUP4 */
@@ -24,9 +24,6 @@
 		interrupts = <65 0x2008>;
 		avdd-supply = <&pm8950_l10>;
 		vdd-supply = <&pm8950_l6>;
-		clock-names = "iface_clk", "core_clk";
-		clocks = <&clock_gcc clk_gcc_blsp1_ahb_clk>,
-			<&clock_gcc clk_gcc_blsp1_qup4_i2c_apps_clk>;
 		/* pins used by touchscreen */
 		pinctrl-names = "pmx_ts_active","pmx_ts_suspend","pmx_ts_release";
 		pinctrl-0 = <&ts_int_active &ts_reset_active>;
@@ -46,25 +43,11 @@
 			synaptics,panel-coords = <0 0 1439 2559>;
 		};
 	};
-};
 
-&i2c_6 { /* BLSP2 QUP2 */
-	nq@2b {
-		compatible = "qcom,nq-nci";
-		reg = <0x2b>;
-		qcom,nq-irq = <&msm_gpio 21 0x00>;
-		qcom,nq-ven = <&msm_gpio 20 0x00>;
-		qcom,nq-clkreq = <&pm8950_gpios 5 0x00>;
-		qcom,nq-firm = <&msm_gpio 16 0x00>;
-		interrupt-parent = <&msm_gpio>;
-		qcom,clk-src = "BBCLK2";
-		interrupts = <21 0>;
-		interrupt-names = "nfc_irq";
-		pinctrl-names = "nfc_active", "nfc_suspend";
-		pinctrl-0 = <&nfc_int_active &nfc_disable_active>;
-		pinctrl-1 = <&nfc_int_suspend &nfc_disable_suspend>;
-		clocks = <&clock_gcc clk_bb_clk2_pin>;
-		clock-names = "ref_clk";
+	lt8912@48 {
+		compatible = "lontium,lt8912";
+		reg = <0x48>;
+		qcom,hdmi-reset = <&msm_gpio 13 0x0>;
 	};
 };
 
@@ -77,6 +60,19 @@
 		qcom,parallel-charger;
 		qcom,float-voltage-mv = <4400>;
 		qcom,recharge-mv = <100>;
+	};
+};
+
+&tlmm_pinmux {
+	uart2-default {
+		qcom,pins = <&gp 20>, <&gp 21>;
+		qcom,num-grp-pins = <2>;
+		qcom,pin-func = <2>;
+		label = "uart2-default";
+		lsuart_default: default {
+			drive-strength = <2>;
+			bias-pull-down;
+		};
 	};
 };
 
@@ -115,23 +111,74 @@
 
 	sound-9335 {
 		qcom,msm-gpios =
-			"quin_i2s",
 			"us_eu_gpio";
 		qcom,pinctrl-names =
 			"all_off",
-			"quin_act",
-			"us_eu_gpio_act",
-			"quin_us_eu_gpio_act";
+			"us_eu_gpio_act";
 		pinctrl-names =
 			"all_off",
-			"quin_act",
-			"us_eu_gpio_act",
-			"quin_us_eu_gpio_act";
-		pinctrl-0 = <&pri_tlmm_lines_sus &cross_conn_det_sus>;
-		pinctrl-1 = <&pri_tlmm_lines_act &cross_conn_det_sus>;
-		pinctrl-2 = <&pri_tlmm_lines_sus &cross_conn_det_act>;
-		pinctrl-3 = <&pri_tlmm_lines_act &cross_conn_det_act>;
+			"us_eu_gpio_act";
+		pinctrl-0 = <&cross_conn_det_sus>;
+		pinctrl-1 = <&cross_conn_det_act>;
 		qcom,cdc-us-euro-gpios = <&msm_gpio 144 0>;
+	};
+ 
+	aliases {
+		serial2 = &blsp2_uart0;
+	};
+
+	blsp2_uart0:serial@7af0000{
+		compatible = "qcom,msm-lsuart-v14";
+		reg = <0x7af0000 0x200>;
+		interrupts = <0 307 0>;
+		status = "ok";
+		qcom,msm-bus,name = "serial_uart2";
+		qcom,msm-bus,num-cases = <2>;
+		qcom,msm-bus,num-paths = <1>;
+		qcom,msm-bus,vectors-KBps = <86 512 0 0>, <86 512 500 800>;
+		clock-names = "core_clk", "iface_clk";
+		clocks =
+			<&clock_gcc clk_gcc_blsp2_uart2_apps_clk>,
+			<&clock_gcc clk_gcc_blsp2_ahb_clk>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&lsuart_default>;
+	};
+
+	usb_detect {
+		compatible = "usb_id,usb_detect";
+		qcom,usb-id= <&msm_gpio 56 0x0>;
+		qcom,switch= <&msm_gpio 102 0x0>;
+		qcom,pinctrl-names = "default", "sleep";
+		pinctrl-0 = <&switch_active>;
+		pinctrl-1 = <&switch_sleep>;
+		qcom,pins = <&gp 102>;
+		qcom,num-grp-pins = <1>;
+		qcom,pin-func = <0>;
+		label = "switch";
+		/* active state */
+		switch_active: switch_active{
+			drive-strength = <2>; /* 2 MA */
+			bias-pull-up; /* PULL UP */
+		};
+		/* suspended state */
+		switch_sleep: switch_sleep {
+			drive-strength = <2>; /* 2 MA */
+			bias-pull-up; /* PULL UP */
+		};
+	};
+
+	alert {
+		compatible = "alert_ctrl";
+		reg = <0x01>;
+		status = "disabled";
+		data,gpio_out = <&msm_gpio 10 0>;
+
+		interrupt-parent = <&msm_gpio>;
+		interrupts = <16 0>, <17 0>;
+		interrupt-names = "irq_reset", "irq_in";
+
+		data,gpio_reset = <&msm_gpio 16 0x00>;
+		data,gpio_in = <&msm_gpio 17 0x00>;
 	};
 };
 
@@ -141,8 +188,19 @@
 	pinctrl-0 = <&uart_console_sleep>;
 };
 
-&mem_client_3_size {
-	qcom,peripheral-size = <0x500000>;
+&usb_otg {
+	compatible = "qcom,ipc-hsusb-otg";
+	qcom,hsusb-otg-otg-control = <3>; /* USER */
+};
+
+&spi_0 {
+	spi-max-frequency = <3000000>;
+	ms41908-spi@0 {
+		compatible = "spidev";
+		spi-max-frequency = <3000000>;
+		reg = <0>;
+		ms-gpio = <&msm_gpio 135 0>;
+	};
 };
 
 &spmi_bus {
@@ -228,43 +286,6 @@
 	status = "ok";
 };
 
-&sdhc_3 {
-	vdd-supply = <&pm8950_l5>;
-	qcom,vdd-voltage-level = <1800000 1800000>;
-	qcom,vdd-current-level = <200 639000>;
-
-	vdd-io-supply = <&pm8950_l5>;
-	qcom,vdd-io-always-on;
-	qcom,vdd-io-voltage-level = <1800000 1800000>;
-	qcom,vdd-io-current-level = <200 639000>;
-
-	pinctrl-names = "active", "sleep";
-	pinctrl-0 = <&sdc3_clk_on &sdc3_cmd_on &sdc3_dat_on
-					&sdc3_wlan_gpio_active>;
-	pinctrl-1 = <&sdc3_clk_off &sdc3_cmd_off &sdc3_dat_off
-					&sdc3_wlan_gpio_sleep>;
-
-	status = "disabled";
-};
-
-/{
-	mtp_batterydata: qcom,battery-data {
-		qcom,batt-id-range-pct = <15>;
-		#include "batterydata-itech-3000mah-4200mv.dtsi"
-		#include "batterydata-itech-3000mah.dtsi"
-	};
-};
-
-&pmi8950_fg {
-	qcom,battery-data = <&mtp_batterydata>;
-};
-
-&pmi8950_charger {
-	qcom,battery-data = <&mtp_batterydata>;
-	qcom,chg-led-support;
-	qcom,chg-led-sw-controls;
-};
-
 /* CoreSight */
 &tpiu {
 	pinctrl-names = "sdcard", "trace", "swduart",
@@ -289,31 +310,22 @@
 		     &qdsd_data0_spmi &qdsd_data3_spmi>;
 };
 
-&slim_msm {
-	tasha_codec {
-		swr_master {
-			compatible = "qcom,swr-wcd";
-			#address-cells = <2>;
-			#size-cells = <0>;
-			wsa881x@20170212 {
-				compatible = "qcom,wsa881x";
-				reg = <0x00 0x20170212>;
-				pinctrl-names = "wsa_spkr_sd_act",
-						"wsa_spkr_sd_sus";
-				pinctrl-0 = <&wsa_spkr_sd_act>;
-				pinctrl-1 = <&wsa_spkr_sd_sus>;
-			};
-
-			wsa881x@20170211 {
-				compatible = "qcom,wsa881x";
-				reg = <0x00 0x20170211>;
-				pinctrl-names = "wsa_spkr_sd_act",
-						"wsa_spkr_sd_sus";
-				pinctrl-0 = <&wsa_spkr_sd_act>;
-				pinctrl-1 = <&wsa_spkr_sd_sus>;
-			};
-		};
+/{
+	mtp_batterydata: qcom,battery-data {
+		qcom,batt-id-range-pct = <15>;
+		#include "batterydata-itech-3000mah-4200mv.dtsi"
+		#include "batterydata-itech-3000mah.dtsi"
 	};
+};
+
+&pmi8950_fg {
+	qcom,battery-data = <&mtp_batterydata>;
+};
+
+&pmi8950_charger {
+	qcom,battery-data = <&mtp_batterydata>;
+	qcom,chg-led-support;
+	qcom,chg-led-sw-controls;
 };
 
 &pm8950_cajon_dig {

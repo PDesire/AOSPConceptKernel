@@ -1,4 +1,4 @@
-/* Copyright (c) 2013-2015, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2013-2016, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -62,6 +62,7 @@ int msm_isp_send_event(struct vfe_device *vfe_dev,
 int msm_isp_cal_word_per_line(uint32_t output_format,
 	uint32_t pixel_per_line);
 int msm_isp_get_bit_per_pixel(uint32_t output_format);
+uint32_t msm_isp_get_fe_unpack_pattern(uint32_t input_format);
 enum msm_isp_pack_fmt msm_isp_get_pack_format(uint32_t output_format);
 irqreturn_t msm_isp_process_irq(int irq_num, void *data);
 int msm_isp_set_src_state(struct vfe_device *vfe_dev, void *arg);
@@ -74,8 +75,9 @@ void msm_isp_flush_tasklet(struct vfe_device *vfe_dev);
 long msm_isp_ioctl(struct v4l2_subdev *sd, unsigned int cmd, void *arg);
 int msm_isp_get_clk_info(struct vfe_device *vfe_dev,
 	struct platform_device *pdev, struct msm_cam_clk_info *vfe_clk_info);
-void msm_isp_fetch_engine_done_notify(struct vfe_device *vfe_dev,
-	struct msm_vfe_fetch_engine_info *fetch_engine_info);
+void msm_isp_fetch_engine_irq(struct vfe_device *vfe_dev,
+	uint32_t irq_status0, uint32_t irq_status1,
+	struct msm_isp_timestamp *ts);
 void msm_camera_io_dump_2(void __iomem *addr, int size);
 void msm_isp_print_fourcc_error(const char *origin, uint32_t fourcc_format);
 void msm_isp_get_timestamp(struct msm_isp_timestamp *time_stamp);
