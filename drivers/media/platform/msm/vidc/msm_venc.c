@@ -3607,7 +3607,7 @@ int msm_venc_s_fmt(struct msm_vidc_inst *inst, struct v4l2_format *f)
 		default:
 			dprintk(VIDC_DBG,"%s: Extradata not found for Output Plane\n",__func__);
 			break;
-	} else {
+	} } else {
 		dprintk(VIDC_ERR, "%s: Unsupported buf type: %d\n",
 			__func__, f->type);
 		rc = -EINVAL;
