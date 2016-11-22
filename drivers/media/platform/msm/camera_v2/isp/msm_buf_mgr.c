@@ -587,21 +587,21 @@ static int msm_isp_get_buf(struct msm_isp_buf_mgr *buf_mgr, uint32_t id,
 				    list_del_init(&temp_buf_info->share_list);
 				}
 			    }
-			    /* found one buf */
-			    list_del_init(&(*buf_info)->list);
-			    if (msm_buf_check_head_sanity(bufq)
-				    < 0) {
-				pr_err("%s buf_handle 0x%x buf_idx %d buf_reuse_flag %d\n",
+				/* found one buf */
+				list_del_init(&temp_buf_info->list);
+				if (msm_buf_check_head_sanity(bufq)
+					 < 0) {
+					pr_err("%s buf_handle 0x%x buf_idx %d buf_reuse_flag %d\n",
 					__func__,
 					bufq->bufq_handle,
-					(*buf_info)->buf_idx,
-					(*buf_info)->buf_reuse_flag);
-				spin_unlock_irqrestore(
+					temp_buf_info->buf_idx,
+					temp_buf_info->buf_reuse_flag);
+					spin_unlock_irqrestore(
 					&bufq->bufq_lock, flags);
-				dump_stack();
-				return -EFAULT;
-			    }
-			    break;
+					dump_stack();
+					return -EFAULT;
+				}
+				break;
 			}
 		}
 		break;
@@ -676,6 +676,19 @@ static int msm_isp_get_buf(struct msm_isp_buf_mgr *buf_mgr, uint32_t id,
 	} else {
 		(*buf_info)->state = MSM_ISP_BUFFER_STATE_DEQUEUED;
 		if (bufq->buf_type == ISP_SHARE_BUF) {
+			list_for_each_entry(temp_buf_info,
+				&bufq->share_head, share_list) {
+				if ((temp_buf_info->buf_idx ==
+					(*buf_info)->buf_idx) &&
+					!temp_buf_info->buf_reuse_flag) {
+					pr_err("%s ERROR! Double ADD buf_idx:%d\n",
+						__func__, temp_buf_info->buf_idx);
+					spin_unlock_irqrestore(
+					&bufq->bufq_lock, flags);
+					dump_stack();
+					return -EFAULT;
+				}
+			}
 			memset((*buf_info)->buf_used, 0,
 				   sizeof(uint8_t) * bufq->buf_client_count);
 			(*buf_info)->buf_used[id] = 1;
