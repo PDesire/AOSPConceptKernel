@@ -554,7 +554,26 @@ void mdss_dsi_irq_handler_config(struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 void mdss_dsi_set_tx_power_mode(int mode, struct mdss_panel_data *pdata);
 int mdss_dsi_clk_div_config(struct mdss_panel_info *panel_info,
 			    int frame_rate);
-int mdss_dsi_clk_refresh(struct mdss_panel_data *pdata);
+static int mdss_dsi_clk_refresh(struct mdss_panel_data *pdata)
+{
+	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
+        int rc = 0;
+
+	ctrl_pdata = container_of(pdata, struct mdss_dsi_ctrl_pdata,
+							panel_data);
+	rc = mdss_dsi_clk_div_config(&pdata->panel_info,
+			pdata->panel_info.mipi.frame_rate);
+	if (rc) {
+                pr_err("%s: unable to initialize the clk dividers\n",
+								__func__);
+		return rc;
+        }                                                                            ctrl_pdata->refresh_clk_rate = false;
+        ctrl_pdata->pclk_rate = pdata->panel_info.mipi.dsi_pclk_rate;
+	ctrl_pdata->byte_clk_rate = pdata->panel_info.clk_rate / 8;
+	pr_debug("%s ctrl_pdata->byte_clk_rate=%d ctrl_pdata->pclk_rate=%d\n$",
+		__func__, ctrl_pdata->byte_clk_rate, ctrl_pdata->pclk_rate);
+        return rc;
+}
 int mdss_dsi_link_clk_init(struct platform_device *pdev,
 		      struct mdss_dsi_ctrl_pdata *ctrl_pdata);
 void mdss_dsi_link_clk_deinit(struct device *dev,

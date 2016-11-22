@@ -2115,7 +2115,7 @@ int mdss_dsi_register_mdp_callback(struct mdss_dsi_ctrl_pdata *ctrl,
 	return 0;
 }
 
-static int mdss_dsi_clk_refresh(struct mdss_panel_data *pdata)
+/*static int mdss_dsi_clk_refresh(struct mdss_panel_data *pdata)
 {
 	struct mdss_dsi_ctrl_pdata *ctrl_pdata = NULL;
 	int rc = 0;
@@ -2135,7 +2135,7 @@ static int mdss_dsi_clk_refresh(struct mdss_panel_data *pdata)
 	pr_debug("%s ctrl_pdata->byte_clk_rate=%d ctrl_pdata->pclk_rate=%d\n",
 		__func__, ctrl_pdata->byte_clk_rate, ctrl_pdata->pclk_rate);
 	return rc;
-}
+}*/
 
 
 static void mdss_dsi_dba_work(struct work_struct *work)
