@@ -54,6 +54,8 @@ else ifdef CONFIG_MACH_SONY_EAGLE
         obj-$(CONFIG_MACH_SONY_EAGLE) += board-sony_yukon_eagle-gpiomux.o bms-batterydata-eagle.o
 else ifdef CONFIG_MACH_SONY_TIANCHI
 	obj-$(CONFIG_MACH_SONY_TIANCHI) += board-sony_yukon_tianchi-gpiomux.o bms-batterydata-tianchi.o
+else ifdef CONFIG_MACH_SONY_WUKONG
+	obj-$(CONFIG_MACH_SONY_WUKONG) += board-sony_yukon_wukong-gpiomux.o bms-batterydata-wukong.o
 else ifdef CONFIG_MACH_SONY_SEAGULL
 	obj-$(CONFIG_MACH_SONY_SEAGULL) += board-sony_yukon_seagull-gpiomux.o bms-batterydata-seagull.o
 else

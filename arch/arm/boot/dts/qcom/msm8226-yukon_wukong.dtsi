@@ -369,5 +369,5 @@
 };
 
 &mdss_dsi0 {
-	qcom,dsi-pref-prim-pan = <&panel_detection>;
+	qcom,dsi-pref-prim-pan = <&dsi_novatek_720p_lgd>;
 };

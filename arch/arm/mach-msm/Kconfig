@@ -591,6 +591,17 @@ config MACH_SONY_TIANCHI
 	  If you enable this config,
 	  Please use SONY Mobile source tree.
 
+config MACH_SONY_WUKONG
+	depends on ARCH_MSM8226
+	select MACH_SONY_YUKON
+	bool "Sony Mobile Wukong"
+	default n
+	help
+	  Support for the SONY Mobile Xperia C3 device.
+	  It is based on QCOM MSM8x26 chipset
+	  If you enable this config,
+	  Please use SONY Mobile source tree.
+
 config MACH_SONY_SEAGULL
 	depends on ARCH_MSM8226
 	select MACH_SONY_YUKON

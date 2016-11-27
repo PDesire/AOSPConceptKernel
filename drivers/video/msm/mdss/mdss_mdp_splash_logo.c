@@ -35,6 +35,7 @@
 // All 720p devices
 #elif defined(CONFIG_MACH_SONY_SEAGULL) || \
       defined(CONFIG_MACH_SONY_TIANCHI) || \
+      defined(CONFIG_MACH_SONY_WUKONG) || \
       defined(CONFIG_MACH_SONY_TULIP) || \
       defined(CONFIG_MACH_SONY_AMAMI) || \
       defined(CONFIG_MACH_SONY_ARIES) || \
